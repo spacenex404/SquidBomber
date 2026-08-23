@@ -1,0 +1,8 @@
+Squid Bomber V1.2
+
+Update:
+- Added squid cursor that appears while selecting study text.
+- Added colored ink bubbles released from the cursor squid.
+- Bubble color follows the currently selected ink mode.
+- Preserved the existing idle companion animation and six ink modes.
+- No AI features added.

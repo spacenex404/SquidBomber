@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="csrf-token" content="{{ csrf_token() }}">
+<title>Squid Bomber — SpaceNex</title>
+<!-- Squid Bomber favicon -->
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='assets/squid.png') }}">
+
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="stars"></div>
+<div id="ink-transition" class="ink-transition" aria-hidden="true"></div>
+<header class="topbar">
+  <div class="brand"><span class="brand-icon">✦</span> SQUID <b>BOMBER</b><small>SpaceNex</small></div>
+  <div class="header-actions">
+  <button type="button" class="ghost" id="dashboardBtn">
+    Dashboard
+  </button>
+
+  <button type="button" class="primary" id="launchTop">
+    Launch Workspace
+  </button>
+</div>
+</header>
+<main class="hero">
+  <section class="hero-copy">
+    <p class="eyebrow">SPACE • INK • KNOWLEDGE</p>
+    <h1>Capture Knowledge.<br><span>Ink Your Learning.</span></h1>
+    <p class="lead">A visual study workspace where important ideas become squid-ink highlights, notes, projects and revision quizzes.</p>
+    <button type="button" class="launch" id="launchBtn">
+  <span>🦑</span> LAUNCH SQUID BOMBER
+</button>
+    <div class="feature-pills"><span>6 Ink Modes</span><span>Idle Animation</span><span>Notes</span><span>Quiz</span><span>PDF Export</span></div>
+  </section>
+  <section class="squid-stage">
+    <div class="orbit orbit1"></div><div class="orbit orbit2"></div><div class="glow"></div>
+    <img id="heroSquid" src="{{ url_for('static', filename='assets/squid.png') }}" alt="Squid Bomber mascot">
+    <div class="ink-particle p1"></div><div class="ink-particle p2"></div><div class="ink-particle p3"></div>
+    <div class="idle-label">● IDLE • INK CORE ACTIVE</div>
+  </section>
+</main>
+
+<div id="app" class="app-shell hidden">
+  <aside class="sidebar">
+    <div class="side-title">INK WORKSPACE</div>
+    <button class="side active" data-tab="content">◈ Content</button>
+    <button class="side" data-tab="highlights">✦ Highlights</button>
+    <button class="side" data-tab="notes">▣ Notes</button>
+    <button class="side" data-tab="projects">◉ Projects</button>
+    <button class="side" data-tab="quiz">◆ Quiz</button>
+    <button class="side" data-tab="analytics">◌ Analytics</button>
+    <button class="side" data-tab="export">⇩ Export</button>
+    <button type="button" class="close-workspace" id="closeBtn">
+  ← Exit Workspace
+</button>
+  </aside>
+  <section class="workspace">
+    <div class="workspace-mascot" id="workspaceMascot" aria-label="Squid Bomber idle companion">
+      <div class="mascot-aura"></div>
+      <div class="mascot-orbit"></div>
+      <img src="{{ url_for('static', filename='assets/squid.png') }}" alt="Squid Bomber companion">
+      <span class="mascot-bubble b1"></span><span class="mascot-bubble b2"></span><span class="mascot-bubble b3"></span>
+      <div class="mascot-status"><span class="status-dot"></span><span id="mascotStatus">IDLE • INK CORE</span></div>
+    </div>
+    <div class="workspace-head"><div><p class="eyebrow">SQUID BOMBER</p><h2 id="workspaceTitle">Study Content</h2></div><div class="project-select"><label>Project</label><select id="projectSelect"></select></div></div>
+
+    <section class="panel tab-panel" id="tab-content">
+      <div class="source-row"><div class="field grow"><label>Web URL</label><input id="urlInput" placeholder="https://example.com/article"></div><button class="primary" id="extractBtn">Extract Content</button></div>
+      <div class="divider">OR PASTE TEXT</div>
+      <div class="field"><label>Title</label><input id="contentTitle" value="Study Material"></div>
+      <div class="field"><label>Study text</label><textarea id="contentInput" class="content-input" placeholder="Paste your study material here..."></textarea></div>
+      <div class="toolbar"><button class="primary" id="saveContent">Save Content</button><button type="button" onclick="exportPDF()">📄 Save as PDF</button><span id="contentStatus" class="status"></span></div>
+      <div id="reader" class="reader hidden"></div>
+      <div class="ink-toolbar"><strong>Ink mode:</strong><span id="selectionHint">Select text in the reader, choose an ink, then click Apply.</span><div id="inkPalette"></div><button class="primary small" id="applyInk">Apply Ink</button></div>
+    </section>
+
+    <section class="panel tab-panel hidden" id="tab-highlights"><div class="panel-head"><h3>Saved Highlights</h3><span class="muted">Filter by learning type</span></div><div id="highlightFilters" class="filters"></div><div id="highlightsList" class="cards"></div></section>
+    <section class="panel tab-panel hidden" id="tab-notes"><div class="note-form"><div class="field"><label>Title</label><input id="noteTitle" placeholder="e.g. Stack definition"></div><div class="field"><label>Note</label><textarea id="noteBody" placeholder="Write your own explanation..."></textarea></div><button class="primary" id="saveNote">Save Note</button></div><div id="notesList" class="cards"></div></section>
+    <section class="panel tab-panel hidden" id="tab-projects"><div class="source-row"><div class="field grow"><label>New project</label><input id="projectName" placeholder="e.g. Data Structures"></div><button class="primary" id="createProject">Create Project</button></div><div id="projectsList" class="cards"></div></section>
+    <section class="panel tab-panel hidden" id="tab-quiz"><div class="quiz-intro"><h3>Manual Revision Quiz</h3><p>Questions are stored normally — no AI is used.</p></div><form id="quizForm"></form><button class="primary" id="submitQuiz">Submit Quiz</button><div id="quizResult" class="result"></div></section>
+    <section class="panel tab-panel hidden" id="tab-analytics"><div class="stats" id="stats"></div></section>
+    <section class="panel tab-panel hidden" id="tab-export"><h3>Export Study Material</h3><p class="muted">Export saved notes and color-coded highlights for the selected project.</p><button class="primary" id="exportPdf">Export PDF</button><p id="exportStatus" class="status"></p></section>
+  </section>
+</div>
+<div id="ink-cursor-squid" class="ink-cursor-squid" aria-hidden="true">
+  <img src="{{ url_for('static', filename='assets/squid.png') }}" alt="">
+</div>
+<div id="ink-bubble-container" class="ink-bubble-container" aria-hidden="true"></div>
+<div id="toast" class="toast"></div>
+<script>window.INK_MODES={{ ink_modes|tojson }};</script>
+<script src="{{ url_for('static', filename='script.js') }}"></script>
+</body></html>
