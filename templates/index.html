@@ -43,6 +43,19 @@
 </main>
 
 <div id="app" class="app-shell hidden">
+  <div class="ocean-app-bg" id="appOceanBg" aria-hidden="true">
+    <div class="ocean-app-vignette"></div>
+    <div class="ocean-app-caustic c1"></div>
+    <div class="ocean-app-caustic c2"></div>
+    <div class="ocean-app-rayswrap">
+      <span class="ocean-ray r1"></span>
+      <span class="ocean-ray r2"></span>
+      <span class="ocean-ray r3"></span>
+    </div>
+    {% for i in range(18) %}
+    <span class="ocean-app-bubble" style="left:{{ (i * 5.6) % 97 }}%; width:{{ 3 + (i % 5) }}px; height:{{ 3 + (i % 5) }}px; animation-duration:{{ 9 + (i % 8) }}s; animation-delay:-{{ (i * 1.4) % 11 }}s;"></span>
+    {% endfor %}
+  </div>
   <aside class="sidebar">
     <div class="side-title">INK WORKSPACE</div>
     <button class="side active" data-tab="content">◈ Content</button>
@@ -66,14 +79,29 @@
     </div>
     <div class="workspace-head"><div><p class="eyebrow">SQUID BOMBER</p><h2 id="workspaceTitle">Study Content</h2></div><div class="project-select"><label>Project</label><select id="projectSelect"></select></div></div>
 
-    <section class="panel tab-panel" id="tab-content">
+    <section class="panel tab-panel ocean-themed" id="tab-content">
+      <div class="ocean-bg" id="contentOceanBg" aria-hidden="true">
+        <span class="ocean-blob b1"></span>
+        <span class="ocean-blob b2"></span>
+        <span class="ocean-blob b3"></span>
+        <span class="ocean-particle p1"></span>
+        <span class="ocean-particle p2"></span>
+        <span class="ocean-particle p3"></span>
+        <span class="ocean-particle p4"></span>
+        <span class="ocean-particle p5"></span>
+        <span class="ocean-particle p6"></span>
+      </div>
+      <div class="ocean-content">
       <div class="source-row"><div class="field grow"><label>Web URL</label><input id="urlInput" placeholder="https://example.com/article"></div><button class="primary" id="extractBtn">Extract Content</button></div>
+      <div class="source-row"><div class="field grow"><label>Upload PDF or DOCX</label><input type="file" id="fileInput" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></div><button class="primary" id="extractFileBtn">Extract File</button></div>
       <div class="divider">OR PASTE TEXT</div>
       <div class="field"><label>Title</label><input id="contentTitle" value="Study Material"></div>
       <div class="field"><label>Study text</label><textarea id="contentInput" class="content-input" placeholder="Paste your study material here..."></textarea></div>
       <div class="toolbar"><button class="primary" id="saveContent">Save Content</button><button type="button" onclick="exportPDF()">📄 Save as PDF</button><span id="contentStatus" class="status"></span></div>
       <div id="reader" class="reader hidden"></div>
       <div class="ink-toolbar"><strong>Ink mode:</strong><span id="selectionHint">Select text in the reader, choose an ink, then click Apply.</span><div id="inkPalette"></div><button class="primary small" id="applyInk">Apply Ink</button></div>
+      <div class="saved-materials"><div class="panel-head"><h3>Saved Materials</h3><span class="muted">Extracted pages, images, PDFs &amp; DOCX saved to this project</span></div><div id="savedContentList" class="cards"></div></div>
+      </div>
     </section>
 
     <section class="panel tab-panel hidden" id="tab-highlights"><div class="panel-head"><h3>Saved Highlights</h3><span class="muted">Filter by learning type</span></div><div id="highlightFilters" class="filters"></div><div id="highlightsList" class="cards"></div></section>

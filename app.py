@@ -1,14 +1,15 @@
-from flask import Flask, render_template, request, jsonify, send_file
+from flask import Flask, render_template, request, jsonify, send_file, url_for
 from flask_wtf.csrf import CSRFProtect
-import sqlite3, os, io, re
+import sqlite3, os, io, re, json, uuid
 from datetime import datetime
 import ipaddress
 import socket
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from docx import Document
+from xml.sax.saxutils import escape as xml_escape
 
 app = Flask(__name__)
 csrf = CSRFProtect(app)
@@ -16,8 +17,24 @@ csrf = CSRFProtect(app)
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    MAX_CONTENT_LENGTH=2 * 1024 * 1024,
+    MAX_CONTENT_LENGTH=20 * 1024 * 1024,
 )
+
+
+@app.errorhandler(400)
+def handle_bad_request(e):
+    # Surface CSRF failures (stale token after a server restart, an old
+    # tab left open, etc.) as JSON so the frontend can show a clear
+    # message instead of a generic "failed" toast.
+    description = getattr(e, 'description', '') or ''
+    if 'CSRF' in description.upper():
+        return jsonify(
+            error=(
+                'Your session token expired (usually after the server '
+                'restarts). Please refresh the page and try again.'
+            )
+        ), 400
+    return jsonify(error=description or 'Bad request'), 400
 
 @app.after_request
 def add_security_headers(response):
@@ -30,6 +47,15 @@ def add_security_headers(response):
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE, 'squid_bomber.db')
+UPLOAD_DIR = os.path.join(BASE, 'static', 'uploads')
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+CONTENT_TYPES = {'text', 'web', 'pdf', 'docx'}
+ALLOWED_UPLOAD_EXTENSIONS = {'.pdf', '.docx'}
+MAX_EXTRACT_IMAGES = 6
+MAX_UPLOAD_IMAGES = 4
+MAX_IMAGE_DIMENSION = 1600
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY')
 
@@ -114,6 +140,42 @@ def is_safe_url(url):
         return False
 
 
+def save_extracted_image(image_bytes, dest_dir, index):
+    """Sanitize and persist an extracted image as PNG.
+
+    Re-encoding through Pillow strips any malformed/malicious payload
+    riding along inside the original image bytes and normalizes the
+    format. Returns the saved filename, or None if the image could
+    not be safely processed (never raises).
+    """
+
+    try:
+        from PIL import Image
+
+        img = Image.open(io.BytesIO(image_bytes))
+        img.load()
+
+        if img.width < 60 or img.height < 60:
+            return None
+
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
+
+        if img.width > MAX_IMAGE_DIMENSION or img.height > MAX_IMAGE_DIMENSION:
+            img.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION))
+
+        os.makedirs(dest_dir, exist_ok=True)
+
+        filename = f'img{index}.png'
+
+        img.save(os.path.join(dest_dir, filename), 'PNG')
+
+        return filename
+
+    except Exception:
+        return None
+
+
 def db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -157,6 +219,8 @@ def init_db():
         title TEXT DEFAULT 'Study Material',
         source_url TEXT DEFAULT '',
         body TEXT NOT NULL,
+        content_type TEXT DEFAULT 'text',
+        images_json TEXT DEFAULT '[]',
         created_at TEXT NOT NULL,
         FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
@@ -170,6 +234,23 @@ def init_db():
         FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
     ''')
+
+    # Migrate older databases created before content_type/images_json existed.
+    existing_cols = {
+        row[1] for row in conn.execute(
+            'PRAGMA table_info(content)'
+        ).fetchall()
+    }
+
+    if 'content_type' not in existing_cols:
+        conn.execute(
+            "ALTER TABLE content ADD COLUMN content_type TEXT DEFAULT 'text'"
+        )
+
+    if 'images_json' not in existing_cols:
+        conn.execute(
+            "ALTER TABLE content ADD COLUMN images_json TEXT DEFAULT '[]'"
+        )
 
     if conn.execute(
         'SELECT COUNT(*) FROM projects'
@@ -556,6 +637,24 @@ def save_content():
         or ''
     ).strip()
 
+    content_type = (
+        data.get('content_type')
+        or 'text'
+    ).strip().lower()
+
+    if content_type not in CONTENT_TYPES:
+        content_type = 'text'
+
+    raw_images = data.get('images')
+    images = []
+
+    if isinstance(raw_images, list):
+        for item in raw_images[:MAX_EXTRACT_IMAGES]:
+            if isinstance(item, str):
+                item = item.strip()
+                if item and len(item) <= 2048:
+                    images.append(item)
+
     if not body:
         return jsonify(
             error='Content is empty'
@@ -584,13 +683,15 @@ def save_content():
 
     cur = conn.execute(
         'INSERT INTO content('
-        'project_id,title,source_url,body,created_at'
-        ') VALUES(?,?,?,?,?)',
+        'project_id,title,source_url,body,content_type,images_json,created_at'
+        ') VALUES(?,?,?,?,?,?,?)',
         (
             data.get('project_id'),
             title,
             source_url,
             body,
+            content_type,
+            json.dumps(images),
             now
         )
     )
@@ -627,9 +728,36 @@ def get_content():
 
     conn.close()
 
-    return jsonify(
-        [dict(r) for r in rows]
+    out = []
+
+    for r in rows:
+        d = dict(r)
+
+        try:
+            d['images'] = json.loads(
+                d.pop('images_json', '[]') or '[]'
+            )
+        except Exception:
+            d['images'] = []
+
+        out.append(d)
+
+    return jsonify(out)
+
+
+@app.delete('/api/content/<int:cid>')
+def delete_content(cid):
+    conn = db()
+
+    conn.execute(
+        'DELETE FROM content WHERE id=?',
+        (cid,)
     )
+
+    conn.commit()
+    conn.close()
+
+    return jsonify(ok=True)
 
 
 @app.post('/api/extract')
@@ -708,6 +836,82 @@ def extract():
                 else 'Study Material'
             )
 
+        # Collect a representative set of images from the page so
+        # they can be shown alongside the extracted text. We never
+        # download or proxy the bytes server-side — only absolute
+        # http(s) URLs are returned, and the browser loads them
+        # directly, so this adds no SSRF surface on the backend.
+        def resolve_img_url(src):
+            if not src:
+                return None
+
+            src = src.strip()
+
+            if not src or src.startswith('data:'):
+                return None
+
+            absolute = urljoin(url, src)
+            parsed = urlparse(absolute)
+
+            if parsed.scheme not in ('http', 'https'):
+                return None
+
+            return absolute
+
+        images = []
+        seen = set()
+
+        head_soup = BeautifulSoup(html, 'html.parser')
+
+        meta_img = (
+            head_soup.find('meta', attrs={'property': 'og:image'})
+            or head_soup.find(
+                'meta',
+                attrs={'property': 'og:image:secure_url'}
+            )
+            or head_soup.find('meta', attrs={'name': 'twitter:image'})
+        )
+
+        primary = (
+            resolve_img_url(meta_img.get('content'))
+            if meta_img else None
+        )
+
+        if primary:
+            images.append(primary)
+            seen.add(primary)
+
+        for img_tag in soup.find_all('img'):
+
+            if len(images) >= MAX_EXTRACT_IMAGES:
+                break
+
+            src = (
+                img_tag.get('src')
+                or img_tag.get('data-src')
+                or img_tag.get('data-lazy-src')
+            )
+
+            resolved = resolve_img_url(src)
+
+            if not resolved or resolved in seen:
+                continue
+
+            try:
+                w = int(img_tag.get('width') or 0)
+                h = int(img_tag.get('height') or 0)
+
+                if (w and w < 80) or (h and h < 80):
+                    continue
+
+            except ValueError:
+                pass
+
+            images.append(resolved)
+            seen.add(resolved)
+
+        images = images[:MAX_EXTRACT_IMAGES]
+
         for tag in soup(
             [
                 'script',
@@ -736,13 +940,198 @@ def extract():
         return jsonify(
             title=title[:180],
             body=text[:50000],
-            url=url
+            url=url,
+            image=(images[0] if images else ''),
+            images=images
         )
 
     except Exception as e:
         return jsonify(
             error=f'Could not extract this page: {e}'
         ), 502
+
+
+@app.post('/api/extract/file')
+def extract_file():
+    f = request.files.get('file')
+
+    if not f or not f.filename:
+        return jsonify(
+            error='Choose a PDF or DOCX file first'
+        ), 400
+
+    filename = f.filename
+    ext = os.path.splitext(filename)[1].lower()
+
+    if ext not in ALLOWED_UPLOAD_EXTENSIONS:
+        return jsonify(
+            error='Only .pdf and .docx files are supported'
+        ), 400
+
+    file_bytes = f.read()
+
+    if not file_bytes:
+        return jsonify(
+            error='The uploaded file is empty'
+        ), 400
+
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        return jsonify(
+            error='File is too large (max 20MB)'
+        ), 400
+
+    base_title = (
+        os.path.splitext(os.path.basename(filename))[0][:180]
+        or 'Uploaded Document'
+    )
+
+    subdir = uuid.uuid4().hex
+    dest_dir = os.path.join(UPLOAD_DIR, subdir)
+    images = []
+
+    if ext == '.pdf':
+
+        if not file_bytes.startswith(b'%PDF'):
+            return jsonify(
+                error='This does not look like a valid PDF file'
+            ), 400
+
+        try:
+            from pypdf import PdfReader
+        except Exception:
+            return jsonify(
+                error=(
+                    'pypdf is not installed. '
+                    'Run: pip install -r requirements.txt'
+                )
+            ), 500
+
+        try:
+            reader = PdfReader(io.BytesIO(file_bytes))
+
+            if reader.is_encrypted:
+                try:
+                    reader.decrypt('')
+                except Exception:
+                    pass
+
+            if reader.is_encrypted:
+                return jsonify(
+                    error='This PDF is password-protected'
+                ), 400
+
+            text_parts = []
+
+            for page in reader.pages[:200]:
+                try:
+                    text_parts.append(
+                        (page.extract_text() or '').strip()
+                    )
+                except Exception:
+                    continue
+
+            body = '\n\n'.join(t for t in text_parts if t)
+
+            for page in reader.pages[:20]:
+
+                if len(images) >= MAX_UPLOAD_IMAGES:
+                    break
+
+                try:
+                    page_images = page.images
+                except Exception:
+                    continue
+
+                for img in page_images:
+
+                    if len(images) >= MAX_UPLOAD_IMAGES:
+                        break
+
+                    fn = save_extracted_image(
+                        img.data,
+                        dest_dir,
+                        len(images) + 1
+                    )
+
+                    if fn:
+                        images.append(
+                            url_for(
+                                'static',
+                                filename=f'uploads/{subdir}/{fn}'
+                            )
+                        )
+
+        except Exception as e:
+            return jsonify(
+                error=f'Could not read this PDF: {e}'
+            ), 400
+
+        content_type = 'pdf'
+
+    else:
+
+        if not file_bytes.startswith(b'PK\x03\x04'):
+            return jsonify(
+                error='This does not look like a valid DOCX file'
+            ), 400
+
+        try:
+            docx_doc = Document(io.BytesIO(file_bytes))
+
+            paragraphs = [
+                p.text.strip()
+                for p in docx_doc.paragraphs
+                if p.text.strip()
+            ]
+
+            body = '\n\n'.join(paragraphs)
+
+            for rel in docx_doc.part.rels.values():
+
+                if len(images) >= MAX_UPLOAD_IMAGES:
+                    break
+
+                if 'image' not in rel.reltype:
+                    continue
+
+                try:
+                    data = rel.target_part.blob
+                except Exception:
+                    continue
+
+                fn = save_extracted_image(
+                    data,
+                    dest_dir,
+                    len(images) + 1
+                )
+
+                if fn:
+                    images.append(
+                        url_for(
+                            'static',
+                            filename=f'uploads/{subdir}/{fn}'
+                        )
+                    )
+
+        except Exception as e:
+            return jsonify(
+                error=f'Could not read this DOCX file: {e}'
+            ), 400
+
+        content_type = 'docx'
+
+    if not body:
+        body = '(No extractable text was found in this file.)'
+
+    body = body[:200000]
+
+    return jsonify(
+        title=base_title,
+        body=body,
+        content_type=content_type,
+        images=images,
+        filename=filename
+    )
 
 
 @app.post('/api/quiz/<int:project_id>/submit')
@@ -868,6 +1257,90 @@ def analytics():
     return jsonify(out)
 
 
+@app.post('/api/translate')
+def translate_text():
+
+    data = request.get_json(
+        silent=True
+    ) or {}
+
+    text = (
+        data.get('text')
+        or ''
+    ).strip()
+
+    target = (
+        data.get('target_lang')
+        or ''
+    ).strip()
+
+    if not text:
+        return jsonify(
+            error='No text to translate'
+        ), 400
+
+    if not target:
+        return jsonify(
+            error='Target language is required'
+        ), 400
+
+    if len(text) > 50000:
+        return jsonify(
+            error='Text is too long to translate'
+        ), 400
+
+    try:
+        from deep_translator import GoogleTranslator
+
+    except Exception:
+        return jsonify(
+            error=(
+                'deep-translator is not installed. '
+                'Run: pip install -r requirements.txt'
+            )
+        ), 500
+
+    try:
+        # deep-translator's free backend has a per-request
+        # character limit, so split on paragraph boundaries
+        # and translate in safe-sized chunks.
+        chunks = []
+        chunk = ''
+
+        for para in text.split('\n'):
+
+            if len(chunk) + len(para) + 1 > 4500:
+                chunks.append(chunk)
+                chunk = para
+            else:
+                chunk = (chunk + '\n' + para) if chunk else para
+
+        if chunk:
+            chunks.append(chunk)
+
+        translator = GoogleTranslator(
+            source='auto',
+            target=target
+        )
+
+        translated_parts = [
+            translator.translate(c) or ''
+            for c in chunks
+        ]
+
+        translated = '\n'.join(translated_parts)
+
+        return jsonify(
+            translated=translated,
+            target_lang=target
+        )
+
+    except Exception as e:
+        return jsonify(
+            error=f'Translation failed: {e}'
+        ), 502
+
+
 @app.post('/api/export/pdf')
 def export_pdf():
 
@@ -980,7 +1453,8 @@ def export_pdf():
 
         story.append(
             Paragraph(
-                f"<b>{label}</b>: {x['text']}",
+                f"<b>{xml_escape(label)}</b>: "
+                f"{xml_escape(x['text']).replace(chr(10), '<br/>')}",
                 styles['BodyText']
             )
         )
@@ -1003,7 +1477,8 @@ def export_pdf():
 
         story.append(
             Paragraph(
-                f"<b>{n['title']}</b><br/>{n['body']}",
+                f"<b>{xml_escape(n['title'])}</b><br/>"
+                f"{xml_escape(n['body']).replace(chr(10), '<br/>')}",
                 styles['BodyText']
             )
         )

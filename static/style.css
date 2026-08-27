@@ -242,7 +242,9 @@ body{
   position:fixed;
   inset:72px 0 0;
   z-index:20;
-  background:rgba(3,7,18,.97);
+  background:
+    radial-gradient(ellipse at 50% -20%,rgba(40,130,210,.28),transparent 55%),
+    linear-gradient(180deg,rgba(3,14,30,.93) 0%,rgba(2,10,24,.97) 100%);
   display:grid;
   grid-template-columns:230px 1fr
 }
@@ -252,12 +254,14 @@ body{
 }
 
 .sidebar{
+  position:relative;
+  z-index:1;
   border-right:1px solid var(--line);
   padding:24px 14px;
   display:flex;
   flex-direction:column;
   gap:7px;
-  background:#070d1e
+  background:linear-gradient(180deg,#071528,#040c1c)
 }
 
 .side-title{
@@ -286,9 +290,115 @@ body{
 }
 
 .workspace{
+  position:relative;
+  z-index:1;
   overflow:auto;
   padding:32px 5vw;
   position:relative
+}
+
+
+/* ==========================================================
+   SQUID BOMBER — UNDERWATER WORKSPACE ATMOSPHERE
+   ========================================================== */
+
+.ocean-app-bg{
+  position:absolute;
+  inset:0;
+  z-index:0;
+  overflow:hidden;
+  pointer-events:none
+}
+
+.ocean-app-vignette{
+  position:absolute;
+  inset:0;
+  background:
+    radial-gradient(ellipse at 50% -10%,rgba(110,205,255,.16),transparent 55%),
+    radial-gradient(ellipse at 50% 120%,rgba(2,8,20,.85),transparent 60%)
+}
+
+.ocean-app-caustic{
+  position:absolute;
+  inset:-25%;
+  background:repeating-linear-gradient(
+    115deg,
+    rgba(130,215,255,.055) 0px,
+    rgba(130,215,255,.055) 2px,
+    transparent 2px,
+    transparent 64px
+  );
+  mix-blend-mode:screen;
+  opacity:.5;
+  animation:causticShift 22s linear infinite
+}
+
+.ocean-app-caustic.c2{
+  animation-duration:30s;
+  animation-direction:reverse;
+  opacity:.28;
+  background:repeating-linear-gradient(
+    65deg,
+    rgba(90,230,255,.05) 0px,
+    rgba(90,230,255,.05) 2px,
+    transparent 2px,
+    transparent 80px
+  )
+}
+
+@keyframes causticShift{
+  0%{ transform:translate(0,0) rotate(0deg) }
+  100%{ transform:translate(-140px,90px) rotate(3deg) }
+}
+
+.ocean-app-rayswrap{
+  position:absolute;
+  inset:0;
+  overflow:hidden
+}
+
+.ocean-ray{
+  position:absolute;
+  top:-10%;
+  width:120px;
+  height:140%;
+  background:linear-gradient(180deg,rgba(160,225,255,.14),transparent 70%);
+  filter:blur(4px);
+  transform:rotate(10deg);
+  animation:raySway 11s ease-in-out infinite
+}
+
+.ocean-ray.r1{ left:6% }
+.ocean-ray.r2{ left:42%; width:90px; animation-delay:-3.5s }
+.ocean-ray.r3{ left:78%; width:70px; animation-delay:-7s }
+
+@keyframes raySway{
+  0%,100%{ transform:rotate(8deg) translateX(0) }
+  50%{ transform:rotate(13deg) translateX(20px) }
+}
+
+.ocean-app-bubble{
+  position:absolute;
+  bottom:-24px;
+  border-radius:50%;
+  background:rgba(205,238,255,.55);
+  box-shadow:0 0 6px rgba(180,230,255,.4);
+  animation:oceanAppRise linear infinite
+}
+
+@keyframes oceanAppRise{
+  0%{ transform:translateY(0) translateX(0); opacity:0 }
+  8%{ opacity:.55 }
+  92%{ opacity:.3 }
+  100%{ transform:translateY(-108vh) translateX(22px); opacity:0 }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .ocean-app-caustic,
+  .ocean-ray,
+  .ocean-app-bubble{
+    animation:none
+  }
 }
 
 
@@ -572,7 +682,111 @@ body{
   border:1px solid var(--line);
   border-radius:18px;
   padding:24px;
-  box-shadow:0 25px 80px rgba(0,0,0,.25)
+  box-shadow:0 25px 80px rgba(0,0,0,.25),inset 0 0 60px rgba(70,170,255,.06);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px)
+}
+
+/* ==========================================================
+   SQUID BOMBER — IDLE SPACE-OCEAN CONTENT THEME
+   ========================================================== */
+
+.ocean-themed{
+  position:relative;
+  isolation:isolate;
+  overflow:hidden
+}
+
+.ocean-content{
+  position:relative;
+  z-index:1
+}
+
+.ocean-bg{
+  --ink-theme-color:#1f8cff;
+  --ink-theme-color-2:#35d8ff;
+  position:absolute;
+  inset:0;
+  z-index:0;
+  overflow:hidden;
+  pointer-events:none;
+  border-radius:inherit;
+  background:
+    radial-gradient(circle at 20% 10%,rgba(53,216,255,.05),transparent 55%),
+    linear-gradient(180deg,rgba(5,9,22,0) 0%,rgba(5,9,22,.5) 100%)
+}
+
+.ocean-blob{
+  position:absolute;
+  border-radius:50%;
+  background-color:var(--ink-theme-color);
+  filter:blur(60px);
+  opacity:.24;
+  transition:background-color .8s ease,opacity .8s ease;
+  animation:oceanDrift 16s ease-in-out infinite
+}
+
+.ocean-blob.b1{
+  width:260px;
+  height:260px;
+  top:-60px;
+  left:-40px
+}
+
+.ocean-blob.b2{
+  width:230px;
+  height:230px;
+  bottom:-70px;
+  right:-30px;
+  background-color:var(--ink-theme-color-2);
+  animation-duration:20s;
+  animation-delay:-4s
+}
+
+.ocean-blob.b3{
+  width:180px;
+  height:180px;
+  top:38%;
+  left:55%;
+  animation-duration:12s;
+  animation-delay:-2s
+}
+
+.ocean-particle{
+  position:absolute;
+  bottom:-20px;
+  width:5px;
+  height:5px;
+  border-radius:50%;
+  background:rgba(255,255,255,.55);
+  box-shadow:0 0 6px rgba(255,255,255,.4);
+  animation:oceanRise 9s linear infinite
+}
+
+.ocean-particle.p1{ left:8%;  width:4px;  height:4px;  animation-duration:8s;  animation-delay:0s }
+.ocean-particle.p2{ left:22%; width:6px;  height:6px;  animation-duration:11s; animation-delay:-2s }
+.ocean-particle.p3{ left:41%; width:3px;  height:3px;  animation-duration:9s;  animation-delay:-5s }
+.ocean-particle.p4{ left:63%; width:5px;  height:5px;  animation-duration:12s; animation-delay:-1s }
+.ocean-particle.p5{ left:79%; width:4px;  height:4px;  animation-duration:10s; animation-delay:-6s }
+.ocean-particle.p6{ left:92%; width:6px;  height:6px;  animation-duration:13s; animation-delay:-3s }
+
+@keyframes oceanDrift{
+  0%,100%{ transform:translate(0,0) scale(1) }
+  50%{ transform:translate(22px,-16px) scale(1.08) }
+}
+
+@keyframes oceanRise{
+  0%{ transform:translateY(0) translateX(0); opacity:0 }
+  10%{ opacity:.55 }
+  90%{ opacity:.35 }
+  100%{ transform:translateY(-360px) translateX(14px); opacity:0 }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .ocean-blob,
+  .ocean-particle{
+    animation:none
+  }
 }
 
 .source-row{
@@ -626,6 +840,102 @@ body{
   white-space:pre-wrap;
   max-height:430px;
   overflow:auto
+}
+
+.reader-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-bottom:8px
+}
+
+.reader-head h2{
+  margin:0
+}
+
+.reader-images{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin:12px 0 20px
+}
+
+.reader-image-thumb{
+  width:150px;
+  height:110px;
+  object-fit:cover;
+  border-radius:10px;
+  border:1px solid rgba(24,34,56,.15);
+  background:#e7ebf3
+}
+
+.reader-images.small-gallery{
+  margin:10px 0
+}
+
+.reader-image-thumb.small{
+  width:78px;
+  height:58px;
+  border-radius:8px
+}
+
+.saved-materials{
+  margin-top:26px;
+  padding-top:20px;
+  border-top:1px solid var(--line)
+}
+
+.field input[type="file"]{
+  background:#080f23;
+  color:#edf4ff;
+  border:1px solid var(--line);
+  border-radius:9px;
+  padding:10px;
+  outline:none;
+  font-size:12px
+}
+
+.reader-toolbar{
+  display:flex;
+  align-items:flex-end;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-bottom:18px;
+  padding-bottom:16px;
+  border-bottom:1px solid rgba(24,34,56,.12)
+}
+
+.reader-toolbar .field{
+  margin-bottom:0;
+  min-width:170px
+}
+
+.reader-toolbar select{
+  background:#fff;
+  color:#182238;
+  border:1px solid rgba(24,34,56,.2);
+  border-radius:9px;
+  padding:10px 12px;
+  outline:none
+}
+
+.reader-toolbar .status{
+  color:#3a7d55
+}
+
+.reader-editarea{
+  width:100%;
+  min-height:280px;
+  background:#fff;
+  color:#182238;
+  border:1px solid rgba(24,34,56,.2);
+  border-radius:10px;
+  padding:16px;
+  line-height:1.8;
+  resize:vertical;
+  font-family:inherit
 }
 
 .ink-toolbar{

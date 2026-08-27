@@ -8,6 +8,56 @@ let currentTab = 'content';
 let selectedText = '';
 let selectedMode = Object.keys(modes)[0] || 'concept';
 
+let readerTitle = '';
+let readerOriginalBody = '';
+let readerDisplayedBody = '';
+let readerEditing = false;
+let readerContentType = 'text';
+let readerImages = [];
+let readerSourceUrl = '';
+
+const TYPE_META = {
+    text: { label: '📝 Text', color: '#64748b' },
+    web:  { label: '🌐 Web',  color: '#38bdf8' },
+    pdf:  { label: '📕 PDF',  color: '#fb7185' },
+    docx: { label: '📘 DOCX', color: '#4ade80' }
+};
+
+const OCEAN_DEFAULT_COLOR = '#1f8cff';
+const OCEAN_DEFAULT_COLOR_2 = '#35d8ff';
+
+function setContentOceanTheme(color, color2) {
+
+    const bg = $('#contentOceanBg');
+
+    if (!bg) return;
+
+    bg.style.setProperty(
+        '--ink-theme-color',
+        color || OCEAN_DEFAULT_COLOR
+    );
+
+    bg.style.setProperty(
+        '--ink-theme-color-2',
+        color2 || color || OCEAN_DEFAULT_COLOR_2
+    );
+
+}
+
+const TRANSLATE_LANGUAGES = [
+    { code: 'original', label: 'Original' },
+    { code: 'en', label: 'English' },
+    { code: 'hi', label: 'Hindi' },
+    { code: 'es', label: 'Spanish' },
+    { code: 'fr', label: 'French' },
+    { code: 'de', label: 'German' },
+    { code: 'zh-CN', label: 'Chinese (Simplified)' },
+    { code: 'ar', label: 'Arabic' },
+    { code: 'pt', label: 'Portuguese' },
+    { code: 'ru', label: 'Russian' },
+    { code: 'ja', label: 'Japanese' }
+];
+
 /* ==========================================================
    BASIC HELPERS
    ========================================================== */
@@ -68,6 +118,8 @@ async function loadAll() {
     await loadProjects();
 
     buildPalette();
+
+    await loadContent();
 
 }
 
@@ -236,11 +288,49 @@ function switchTab(tab) {
         title.textContent = titles[tab] || 'Squid Bomber';
     }
 
+    if (tab === 'content') loadContent();
     if (tab === 'highlights') loadHighlights();
     if (tab === 'notes') loadNotes();
     if (tab === 'projects') loadProjects();
     if (tab === 'quiz') loadQuiz();
     if (tab === 'analytics') loadAnalytics();
+
+}
+
+
+async function loadAnalytics() {
+
+    const stats = $('#stats');
+
+    if (!stats) return;
+
+    try {
+
+        const d = await api(
+            '/api/analytics?project_id=' + currentProject
+        );
+
+        const items = [
+            { label: 'Projects', value: d.projects },
+            { label: 'Notes', value: d.notes },
+            { label: 'Highlights', value: d.highlights },
+            { label: 'Quiz Attempts', value: d.quiz_attempts },
+            { label: 'Avg Quiz Score', value: d.avg_score }
+        ];
+
+        stats.innerHTML = items.map(item => `
+            <div class="stat">
+                <b>${esc(String(item.value ?? 0))}</b>
+                ${esc(item.label)}
+            </div>
+        `).join('');
+
+    } catch (error) {
+
+        console.error(error);
+        toast(error.message);
+
+    }
 
 }
 
@@ -424,6 +514,51 @@ async function loadNotes() {
 }
 
 
+const saveNoteButton = $('#saveNote');
+
+if (saveNoteButton) {
+
+    saveNoteButton.addEventListener('click', async () => {
+
+        const titleInput = $('#noteTitle');
+        const bodyInput = $('#noteBody');
+
+        const title = (titleInput?.value || '').trim();
+        const body = (bodyInput?.value || '').trim();
+
+        if (!body) {
+            return toast('Write a note before saving');
+        }
+
+        try {
+
+            await api('/api/notes', {
+                method: 'POST',
+                body: JSON.stringify({
+                    project_id: currentProject,
+                    title: title,
+                    body: body
+                })
+            });
+
+            if (titleInput) titleInput.value = '';
+            if (bodyInput) bodyInput.value = '';
+
+            await loadNotes();
+
+            toast('Note saved');
+
+        } catch (error) {
+
+            toast(error.message);
+
+        }
+
+    });
+
+}
+
+
 async function deleteNote(id) {
 
     if (!confirm('Delete this note?')) {
@@ -452,6 +587,20 @@ async function deleteNote(id) {
    CONTENT
    ========================================================== */
 
+const contentInputArea = $('#contentInput');
+
+if (contentInputArea) {
+
+    contentInputArea.addEventListener('input', () => {
+        setContentOceanTheme();
+    });
+
+    contentInputArea.addEventListener('focus', () => {
+        setContentOceanTheme();
+    });
+
+}
+
 const saveContentButton = $('#saveContent');
 
 if (saveContentButton) {
@@ -464,6 +613,8 @@ if (saveContentButton) {
             return toast('Paste or extract some content first');
         }
 
+        const title = $('#contentTitle').value || 'Study Material';
+
         try {
 
             await api('/api/content', {
@@ -471,20 +622,21 @@ if (saveContentButton) {
                 body: JSON.stringify({
 
                     project_id: currentProject,
-
-                    title:
-                        $('#contentTitle').value ||
-                        'Study Material',
-
-                    body: body
+                    title: title,
+                    body: body,
+                    content_type: readerContentType,
+                    images: readerImages,
+                    url: readerSourceUrl
 
                 })
             });
 
-            renderReader(
-                $('#contentTitle').value || 'Study Material',
-                body
-            );
+            renderReader(title, body, {
+                images: readerImages,
+                contentType: readerContentType
+            });
+
+            await loadContent();
 
             toast('Content saved');
 
@@ -525,18 +677,26 @@ if (extractButton) {
 
             });
 
+            readerContentType = 'web';
+            readerImages = Array.isArray(d.images) ? d.images : [];
+            readerSourceUrl = url;
+
             $('#contentTitle').value = d.title;
             $('#contentInput').value = d.body;
 
-            renderReader(
-                d.title,
-                d.body
-            );
+            renderReader(d.title, d.body, {
+                images: readerImages,
+                contentType: readerContentType
+            });
 
             $('#contentStatus').textContent =
                 'Extracted successfully';
 
-            toast('Readable content loaded');
+            toast(
+                readerImages.length
+                    ? `Readable content loaded with ${readerImages.length} image(s)`
+                    : 'Readable content loaded'
+            );
 
         } catch (error) {
 
@@ -551,42 +711,502 @@ if (extractButton) {
 }
 
 
-function renderReader(title, body) {
+const extractFileButton = $('#extractFileBtn');
+
+if (extractFileButton) {
+
+    extractFileButton.addEventListener('click', async () => {
+
+        const fileInput = $('#fileInput');
+        const file = fileInput?.files?.[0];
+
+        if (!file) {
+            return toast('Choose a PDF or DOCX file first');
+        }
+
+        const nameLower = file.name.toLowerCase();
+
+        if (!nameLower.endsWith('.pdf') && !nameLower.endsWith('.docx')) {
+            return toast('Only .pdf and .docx files are supported');
+        }
+
+        $('#contentStatus').textContent = 'Extracting file...';
+
+        try {
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const csrfToken =
+                document.querySelector('meta[name="csrf-token"]')?.content;
+
+            const r = await fetch('/api/extract/file', {
+                method: 'POST',
+                headers: {
+                    ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {})
+                },
+                body: formData
+            });
+
+            let d = {};
+
+            try {
+                d = await r.json();
+            } catch (e) {}
+
+            if (!r.ok) {
+                throw new Error(d.error || 'Could not extract this file');
+            }
+
+            readerContentType = d.content_type || 'text';
+            readerImages = Array.isArray(d.images) ? d.images : [];
+            readerSourceUrl = '';
+
+            $('#contentTitle').value = d.title;
+            $('#contentInput').value = d.body;
+
+            renderReader(d.title, d.body, {
+                images: readerImages,
+                contentType: readerContentType
+            });
+
+            $('#contentStatus').textContent = 'Extracted successfully';
+
+            toast(
+                (readerContentType === 'pdf' ? 'PDF' : 'DOCX') +
+                ' content loaded' +
+                (readerImages.length
+                    ? ` with ${readerImages.length} image(s)`
+                    : '')
+            );
+
+            fileInput.value = '';
+
+        } catch (error) {
+
+            $('#contentStatus').textContent = '';
+            toast(error.message);
+
+        }
+
+    });
+
+}
+
+
+async function loadContent() {
+
+    const list = $('#savedContentList');
+
+    if (!list || currentProject == null) return;
+
+    try {
+
+        const items = await api(
+            '/api/content?project_id=' + currentProject
+        );
+
+        list.innerHTML = items.map(item => {
+
+            const meta = TYPE_META[item.content_type] || TYPE_META.text;
+            const images = Array.isArray(item.images) ? item.images : [];
+            const snippet = (item.body || '').slice(0, 220);
+
+            return `
+                <div class="card">
+
+                    <div>
+                        <h3>
+                            ${esc(item.title)}
+                            <span class="tag" style="background:${meta.color}">
+                                ${esc(meta.label)}
+                            </span>
+                        </h3>
+
+                        ${images.length ? `
+                            <div class="reader-images small-gallery">
+                                ${images.slice(0, 4).map(src => `
+                                    <img
+                                        src="${esc(src)}"
+                                        alt="Saved image"
+                                        loading="lazy"
+                                        class="reader-image-thumb small">
+                                `).join('')}
+                            </div>
+                        ` : ''}
+
+                        <p>${esc(snippet)}${(item.body || '').length > 220 ? '…' : ''}</p>
+
+                        ${item.source_url ? `
+                            <small class="muted">${esc(item.source_url)}</small>
+                        ` : ''}
+                    </div>
+
+                    <button
+                        class="ghost"
+                        onclick="deleteContent(${item.id})">
+                        Delete
+                    </button>
+
+                </div>
+            `;
+
+        }).join('') || `
+            <p class="muted">
+                No saved materials yet — extract a URL, upload a PDF/DOCX,
+                or paste text and save it.
+            </p>
+        `;
+
+    } catch (error) {
+
+        console.error(error);
+        toast(error.message);
+
+    }
+
+}
+
+
+async function deleteContent(id) {
+
+    if (!confirm('Delete this saved material?')) {
+        return;
+    }
+
+    try {
+
+        await api('/api/content/' + id, {
+            method: 'DELETE'
+        });
+
+        await loadContent();
+
+        toast('Saved material deleted');
+
+    } catch (error) {
+
+        toast(error.message);
+
+    }
+
+}
+
+
+function renderReader(title, body, opts = {}) {
 
     const reader = $('#reader');
 
     if (!reader) return;
 
+    const images = Array.isArray(opts.images) ? opts.images : [];
+    const contentType = opts.contentType || 'text';
+    const meta = TYPE_META[contentType] || TYPE_META.text;
+
+    readerTitle = title;
+    readerOriginalBody = body;
+    readerDisplayedBody = body;
+    readerEditing = false;
+
     reader.classList.remove('hidden');
 
     reader.innerHTML = `
-        <h2>${esc(title)}</h2>
+        <div class="reader-head">
+            <h2>${esc(title)}</h2>
+            <span class="tag" style="background:${meta.color}">
+                ${esc(meta.label)}
+            </span>
+        </div>
+
+        ${images.length ? `
+            <div class="reader-images" id="readerImages">
+                ${images.map(src => `
+                    <img
+                        src="${esc(src)}"
+                        alt="Extracted image"
+                        loading="lazy"
+                        class="reader-image-thumb">
+                `).join('')}
+            </div>
+        ` : ''}
+
+        <div class="reader-toolbar" id="readerToolbar">
+
+            <div class="field">
+                <label>Translate to</label>
+                <select id="readerLangSelect">
+                    ${TRANSLATE_LANGUAGES.map(l => `
+                        <option value="${l.code}">${esc(l.label)}</option>
+                    `).join('')}
+                </select>
+            </div>
+
+            <button
+                type="button"
+                class="primary small"
+                id="translateReaderBtn">
+                🌐 Translate
+            </button>
+
+            <button
+                type="button"
+                class="ghost small"
+                id="editReaderBtn">
+                ✏️ Edit
+            </button>
+
+            <span class="status" id="readerToolbarStatus"></span>
+
+        </div>
 
         <div id="readerText">
             ${esc(body)}
         </div>
     `;
 
-    const readerText = $('#readerText');
+    attachReaderSelectionListener();
 
-    if (readerText) {
+    const langSelect = $('#readerLangSelect');
 
-        readerText.addEventListener('mouseup', () => {
+    if (langSelect) {
 
-            const s =
-                window.getSelection()?.toString().trim();
+        langSelect.addEventListener('change', () => {
 
-            if (s) {
-
-                selectedText = s;
-
-                $('#selectionHint').textContent =
-                    `Selected: “${s.slice(0, 100)}${s.length > 100 ? '…' : ''}”`;
-
+            if (langSelect.value === 'original') {
+                setReaderDisplayedText(readerOriginalBody);
             }
 
         });
 
+    }
+
+    const translateBtn = $('#translateReaderBtn');
+
+    if (translateBtn) {
+        translateBtn.addEventListener('click', translateReaderContent);
+    }
+
+    const editBtn = $('#editReaderBtn');
+
+    if (editBtn) {
+        editBtn.addEventListener('click', toggleEditReader);
+    }
+
+}
+
+
+function attachReaderSelectionListener() {
+
+    const readerText = $('#readerText');
+
+    if (!readerText) return;
+
+    readerText.addEventListener('mouseup', () => {
+
+        const s =
+            window.getSelection()?.toString().trim();
+
+        if (s) {
+
+            selectedText = s;
+
+            $('#selectionHint').textContent =
+                `Selected: “${s.slice(0, 100)}${s.length > 100 ? '…' : ''}”`;
+
+        }
+
+    });
+
+}
+
+
+function setReaderDisplayedText(text) {
+
+    readerDisplayedBody = text;
+
+    const readerText = $('#readerText');
+
+    if (readerText) {
+        readerText.innerHTML = esc(text);
+        attachReaderSelectionListener();
+    }
+
+}
+
+
+async function translateReaderContent() {
+
+    const langSelect = $('#readerLangSelect');
+    const status = $('#readerToolbarStatus');
+    const translateBtn = $('#translateReaderBtn');
+
+    if (!langSelect) return;
+
+    const target = langSelect.value;
+
+    if (target === 'original') {
+        setReaderDisplayedText(readerOriginalBody);
+        return;
+    }
+
+    if (!readerOriginalBody) {
+        return toast('Nothing to translate yet');
+    }
+
+    if (translateBtn) {
+        translateBtn.disabled = true;
+    }
+
+    if (status) {
+        status.textContent = 'Translating...';
+    }
+
+    try {
+
+        const d = await api('/api/translate', {
+            method: 'POST',
+            body: JSON.stringify({
+                text: readerOriginalBody,
+                target_lang: target
+            })
+        });
+
+        setReaderDisplayedText(d.translated);
+
+        if (status) {
+            status.textContent = 'Translated';
+        }
+
+        toast('Content translated');
+
+    } catch (error) {
+
+        if (status) {
+            status.textContent = '';
+        }
+
+        toast(error.message);
+
+    } finally {
+
+        if (translateBtn) {
+            translateBtn.disabled = false;
+        }
+
+    }
+
+}
+
+
+function toggleEditReader() {
+
+    const readerText = $('#readerText');
+    const editBtn = $('#editReaderBtn');
+
+    if (!readerText || !editBtn) return;
+
+    if (!readerEditing) {
+
+        readerEditing = true;
+
+        const currentText = readerDisplayedBody;
+
+        readerText.outerHTML = `
+            <textarea
+                id="readerText"
+                class="content-input reader-editarea"
+            >${esc(currentText)}</textarea>
+        `;
+
+        setContentOceanTheme();
+
+        $('#readerText').addEventListener('input', () => {
+            setContentOceanTheme();
+        });
+
+        editBtn.textContent = '💾 Save Edit';
+
+        if (!$('#cancelReaderEditBtn')) {
+
+            editBtn.insertAdjacentHTML(
+                'afterend',
+                `<button
+                    type="button"
+                    class="ghost small"
+                    id="cancelReaderEditBtn">
+                    Cancel
+                </button>`
+            );
+
+            $('#cancelReaderEditBtn').addEventListener(
+                'click',
+                cancelEditReader
+            );
+
+        }
+
+        return;
+
+    }
+
+    // Saving the edit
+    const editedText = $('#readerText').value;
+
+    readerEditing = false;
+
+    const langSelect = $('#readerLangSelect');
+
+    if (langSelect && langSelect.value === 'original') {
+        readerOriginalBody = editedText;
+    }
+
+    readerDisplayedBody = editedText;
+
+    const contentInput = $('#contentInput');
+
+    if (contentInput) {
+        contentInput.value = editedText;
+    }
+
+    $('#readerText').outerHTML = `
+        <div id="readerText">${esc(editedText)}</div>
+    `;
+
+    attachReaderSelectionListener();
+
+    editBtn.textContent = '✏️ Edit';
+
+    const cancelBtn = $('#cancelReaderEditBtn');
+
+    if (cancelBtn) {
+        cancelBtn.remove();
+    }
+
+    toast('Extracted content updated — click Save Content to persist');
+
+}
+
+
+function cancelEditReader() {
+
+    readerEditing = false;
+
+    $('#readerText').outerHTML = `
+        <div id="readerText">${esc(readerDisplayedBody)}</div>
+    `;
+
+    attachReaderSelectionListener();
+
+    const editBtn = $('#editReaderBtn');
+
+    if (editBtn) {
+        editBtn.textContent = '✏️ Edit';
+    }
+
+    const cancelBtn = $('#cancelReaderEditBtn');
+
+    if (cancelBtn) {
+        cancelBtn.remove();
     }
 
 }
@@ -829,6 +1449,131 @@ document.addEventListener('mouseup', event => {
 
 
 /* ==========================================================
+   QUIZ
+   ========================================================== */
+
+async function loadQuiz() {
+
+    const form = $('#quizForm');
+
+    if (!form) return;
+
+    const resultBox = $('#quizResult');
+
+    if (resultBox) {
+        resultBox.textContent = '';
+        resultBox.classList.remove('show');
+    }
+
+    try {
+
+        const questions = await api('/api/quiz');
+
+        form.innerHTML = questions.map((q, qi) => `
+            <div class="question">
+
+                <h4>${qi + 1}. ${esc(q.question)}</h4>
+
+                ${q.options.map((opt, oi) => `
+                    <label class="option">
+                        <input
+                            type="radio"
+                            name="q${qi}"
+                            value="${oi}">
+                        ${esc(opt)}
+                    </label>
+                `).join('')}
+
+            </div>
+        `).join('') || `
+            <p class="muted">No quiz questions available.</p>
+        `;
+
+    } catch (error) {
+
+        console.error(error);
+        toast(error.message);
+
+    }
+
+}
+
+
+const submitQuizButton = $('#submitQuiz');
+
+if (submitQuizButton) {
+
+    submitQuizButton.addEventListener('click', async () => {
+
+        const form = $('#quizForm');
+        const resultBox = $('#quizResult');
+
+        if (!form) return;
+
+        const questionBlocks =
+            form.querySelectorAll('.question');
+
+        if (!questionBlocks.length) {
+            return toast('No quiz loaded yet');
+        }
+
+        const answers = [];
+
+        for (let qi = 0; qi < questionBlocks.length; qi++) {
+
+            const checked = form.querySelector(
+                `input[name="q${qi}"]:checked`
+            );
+
+            if (!checked) {
+                return toast('Answer every question before submitting');
+            }
+
+            answers.push(
+                parseInt(checked.value, 10)
+            );
+
+        }
+
+        if (!currentProject) {
+            return toast('Select a project first');
+        }
+
+        try {
+
+            const result = await api(
+                `/api/quiz/${currentProject}/submit`,
+                {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        answers: answers
+                    })
+                }
+            );
+
+            if (resultBox) {
+
+                resultBox.textContent =
+                    `Score: ${result.score} / ${result.total}`;
+
+                resultBox.classList.add('show');
+
+            }
+
+            toast('Quiz submitted');
+
+        } catch (error) {
+
+            toast(error.message);
+
+        }
+
+    });
+
+}
+
+
+/* ==========================================================
    MASCOT
    ========================================================== */
 
@@ -926,6 +1671,10 @@ function buildPalette() {
         });
 
     });
+
+    setContentOceanTheme(
+        modes[selectedMode]?.color
+    );
 
 }
 
@@ -1161,6 +1910,13 @@ async function loadHighlights() {
    PDF EXPORT
    ========================================================== */
 
+const exportPdfButton = $('#exportPdf');
+
+if (exportPdfButton) {
+    exportPdfButton.addEventListener('click', exportPDF);
+}
+
+
 async function exportPDF() {
 
     if (!currentProject) {
@@ -1170,7 +1926,8 @@ async function exportPDF() {
     const button =
         $('#exportPdfBtn') ||
         $('#pdfExportBtn') ||
-        $('#exportPDF');
+        $('#exportPDF') ||
+        $('#exportPdf');
 
     if (button) {
         button.disabled = true;
@@ -1179,10 +1936,14 @@ async function exportPDF() {
 
     try {
 
+        const csrfToken =
+            document.querySelector('meta[name="csrf-token"]')?.content;
+
         const response = await fetch('/api/export/pdf', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                ...(csrfToken ? { 'X-CSRFToken': csrfToken } : {})
             },
             body: JSON.stringify({
                 project_id: currentProject

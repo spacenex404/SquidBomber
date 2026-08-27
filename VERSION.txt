@@ -1,6 +1,25 @@
-Squid Bomber V1.2
+Squid Bomber V1.3
 
 Update:
+- Web URL extraction now also pulls images from the page (og:image /
+  twitter:image plus in-article <img> tags) and shows them inline in
+  the reader.
+- New "Upload PDF or DOCX" option in the Content tab extracts text
+  (and any embedded images) from uploaded .pdf and .docx files.
+- Extracted/uploaded images are sanitized and re-encoded server-side
+  before being stored, and served from static/uploads/<id>/.
+- Every piece of saved content is now tagged with its type (Text /
+  Web / PDF / DOCX) and shown in a new "Saved Materials" list in the
+  Content tab, including its thumbnail(s).
+- Added DELETE /api/content/<id> so saved materials can be removed
+  from the workspace.
+- Existing databases are migrated automatically on startup (no
+  action needed — your existing projects, notes, and highlights are
+  preserved).
+- Fixed a bug where switching projects could silently stop loading
+  highlights and notes (a missing loadContent() function).
+
+Previous (V1.2):
 - Added squid cursor that appears while selecting study text.
 - Added colored ink bubbles released from the cursor squid.
 - Bubble color follows the currently selected ink mode.
